@@ -6,77 +6,71 @@ from pyrogram import Client, filters
 from pyrogram.types import ReplyKeyboardMarkup, ReplyKeyboardRemove
 
 # --- CONFIGURATION ---
-API_ID = int(os.environ.get("API_ID", 20726200))
-API_HASH = os.environ.get("API_HASH", "5e927fe061c2f988a843053b67f47da9")
-BOT_TOKEN = os.environ.get("8445895843:AAH_mWI4tBRsTs0fGbWIeqg80uNPEfyK3QQ")
+API_ID = 20726200
+API_HASH = "5e927fe061c2f988a843053b67f47da9"
+BOT_TOKEN = "8445895843:AAH_mWI4tBRsTs0fGbWIeqg80uNPEfyK3QQ" # এখানে টোকেন দিন
 
-app = Client("ahrtsbd_final", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
+app = Client("ahrtsbd_fix", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --- FLASK WEB SERVER (Render Fix) ---
+# --- WEB SERVER FOR RENDER ---
 web_app = Flask(__name__)
 @web_app.route('/')
-def home(): return "AHRTSBD is Alive!"
+def home(): return "AHRTSBD is Active!"
 
 def run_web():
     port = int(os.environ.get("PORT", 10000))
     web_app.run(host='0.0.0.0', port=port)
 
-user_data = {}
-
-# --- START COMMAND (Link Handling) ---
+# --- START COMMAND (File Retrieval) ---
 @app.on_message(filters.command("start") & filters.private)
 async def start(client, message):
     if len(message.command) > 1:
-        file_id = message.command[1]
-        wait_msg = await message.reply_text("⏳ **ফাইলটি সার্ভার থেকে আনা হচ্ছে...**")
+        # লিঙ্ক থেকে ফাইল পাঠানোর সবচেয়ে নিরাপদ পদ্ধতি
+        data = message.command[1]
+        wait_msg = await message.reply_text("⚡ **ফাইলটি সার্ভার থেকে আনা হচ্ছে...**")
         
         try:
-            # সরাসরি ফাইল পাঠানোর সবথেকে ভালো উপায়
+            # সরাসরি ফাইল পাঠানোর কমান্ড
             sent_file = await client.send_cached_media(
                 chat_id=message.chat.id,
-                file_id=file_id,
-                caption="🚀 **Shared by: AHRTSBD**\n\n⚠️ এই ফাইলটি ৩০ মিনিট পর ডিলিট হবে।"
+                file_id=data,
+                caption="🚀 **Shared by: AHRTSBD**\n\n⚠️ ৩০ মিনিট পর এটি ডিলিট হবে।"
             )
             await wait_msg.delete()
 
-            notice = await message.reply_text(
-                "✅ **ফাইল পাঠানো হয়েছে!**\n\n📌 ৩০ মিনিট পর এটি ডিলিট হবে। এখনই **Saved Messages**-এ ফরওয়ার্ড করে রাখুন।"
-            )
+            notice = await message.reply_text("✅ **সফলভাবে পাঠানো হয়েছে!** এখনই ফরওয়ার্ড করে রাখুন।")
 
-            # ৩০ মিনিট টাইমার
             await asyncio.sleep(1800)
             await sent_file.delete()
             await notice.delete()
-            
-        except Exception:
-            await wait_msg.edit("❌ **Error:** ফাইলটি পাওয়া যায়নি। দয়া করে আবার আপলোড করে নতুন লিঙ্ক নিন।")
+        except Exception as e:
+            await wait_msg.edit(f"❌ **Error:** ফাইলটি পাওয়া যায়নি। নতুন করে আপলোড করুন।")
     else:
         await message.reply_text("👋 স্বাগতম! ফাইল আপলোড করতে /upload লিখুন।")
 
-# --- UPLOAD COMMAND ---
+# --- UPLOAD HANDLING ---
+user_temp = {}
+
 @app.on_message(filters.command("upload") & filters.private)
-async def upload_init(client, message):
-    user_data[message.from_user.id] = []
-    await message.reply_text("📤 ফাইলটি পাঠান, শেষ হলে **✅ Finish** বাটনে ক্লিক করুন।", 
+async def upload(client, message):
+    user_temp[message.from_user.id] = True
+    await message.reply_text("📤 আপনার ফাইলটি পাঠান।", 
                              reply_markup=ReplyKeyboardMarkup([["✅ Finish"]], resize_keyboard=True))
 
 @app.on_message(filters.private & ~filters.command(["start", "upload"]))
-async def handle_media(client, message):
+async def process_upload(client, message):
     user_id = message.from_user.id
     if message.text == "✅ Finish":
-        if user_id in user_data and user_data[user_id]:
-            f_id = user_data[user_id][0]
-            me = await client.get_me()
-            link = f"https://t.me/{me.username}?start={f_id}"
-            await message.reply_text(f"✅ **আপনার লিঙ্ক:**\n`{link}`", reply_markup=ReplyKeyboardRemove())
-            user_data.pop(user_id)
-    elif user_id in user_data:
+        user_temp.pop(user_id, None)
+        await message.reply_text("✅ আপলোড শেষ হয়েছে।", reply_markup=ReplyKeyboardRemove())
+    elif user_id in user_temp:
         media = message.document or message.video or message.photo
         if media:
-            user_data[user_id].append(media.file_id)
-            await message.reply_text("📂 সেভ হয়েছে! আরও পাঠান বা ফিনিশ করুন।")
+            bot_me = await client.get_me()
+            link = f"https://t.me/{bot_me.username}?start={media.file_id}"
+            await message.reply_text(f"✅ **আপনার লিঙ্ক:**\n`{link}`")
 
 if __name__ == "__main__":
     threading.Thread(target=run_web, daemon=True).start()
     app.run()
-    
+        
