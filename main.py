@@ -1,3 +1,19 @@
+from flask import Flask
+import threading
+
+# Render Port Fix
+app_web = Flask(__name__)
+@app_web.route('/')
+def hello():
+    return "AHRTSBD Bot is Running!"
+
+def run_web():
+    app_web.run(host='0.0.0.0', port=10000)
+
+threading.Thread(target=run_web).start()
+
+# এরপর আপনার বাকি কোড (Pyrogram এর অংশ) শুরু হবে...
+
 import asyncio
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
