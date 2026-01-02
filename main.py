@@ -1,5 +1,16 @@
+import asyncio
+from pyrogram import Client, filters
+from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
 from flask import Flask
 import threading
+import os
+
+# --- CONFIGURATION ---
+API_ID = 20726200
+API_HASH = "5e927fe061c2f988a843053b67f47da9"
+BOT_TOKEN = "আপনার_বোট_টোকেন_এখানে_দিন"
+
+app = Client("ahrtsbd_pro", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
 # Render Port Fix
 app_web = Flask(__name__)
@@ -8,24 +19,11 @@ def hello():
     return "AHRTSBD Bot is Running!"
 
 def run_web():
-    app_web.run(host='0.0.0.0', port=10000)
+    port = int(os.environ.get("PORT", 10000))
+    app_web.run(host='0.0.0.0', port=port)
 
 threading.Thread(target=run_web).start()
 
-# এরপর আপনার বাকি কোড (Pyrogram এর অংশ) শুরু হবে...
-
-import asyncio
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton, ReplyKeyboardMarkup, ReplyKeyboardRemove
-
-# --- CONFIGURATION ---
-API_ID = 20726200
-API_HASH = "5e927fe061c2f988a843053b67f47da9"
-BOT_TOKEN = "8445895843:AAH_mWI4tBRsTs0fGbWIeqg80uNPEfyK3QQ"
-
-app = Client("ahrtsbd_pro", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# Temporary storage for upload process
 user_data = {}
 
 # --- START COMMAND (Link Handling & Auto Delete) ---
@@ -34,86 +32,58 @@ async def start(client, message):
     if len(message.command) > 1:
         file_id = message.command[1]
         
-        # 🟢 Animation Effect
-        proc = await message.reply_text("⚡ **AHRTSBD Server-e connect hochhe...**")
-        await asyncio.sleep(1)
-        await proc.edit("📡 **File khunje paoya gechhe...**")
-        await asyncio.sleep(1)
-        await proc.edit("📤 **Apnar inbox-e pathano hochhe...**")
+        proc = await message.reply_text("⏳ **অপেক্ষা করুন...**")
         
         try:
-            # File pathano
-            sent_file = await message.reply_document(
-                document=file_id,
-                caption="🚀 **Shared by: AHRTSBD Digital**\n\n⚠️ Eita 30 minute por delete hoye jabe."
+            # ফাইল পাঠানো (Digital শব্দ বাদ দেওয়া হয়েছে)
+            sent_file = await client.send_cached_media(
+                chat_id=message.chat.id,
+                file_id=file_id,
+                caption="🚀 **Shared by: AHRTSBD**\n\n⚠️ এই ফাইলটি ৩০ মিনিট পর ডিলিট হবে।"
             )
+
             await proc.delete()
 
-            # Forward Notice
             notice = await message.reply_text(
-                "✅ **File pathano hoyeche!**\n\n"
-                "⚠️ **Sotorkobarta:**\n"
-                "Copyright eronei eita **30 minute** por delete hoye jabe.\n\n"
-                "📌 **Tai ekhon-e Saved Messages ba onno kothao Forward kore rakhen.**"
+                "✅ **ফাইল সফলভাবে পাঠানো হয়েছে!**\n\n"
+                "⚠️ **সতর্কবার্তা:**\n"
+                "নিরাপত্তার স্বার্থে এটি **৩০ মিনিট** পর এখান থেকে ডিলিট হবে।\n\n"
+                "📌 **তাই ফাইলটি এখনই আপনার Saved Messages অথবা অন্য কোথাও Forward করে রাখুন।**"
             )
 
-            # 🕒 30 Minute Timer (1800 Seconds)
+            # ৩০ মিনিট অপেক্ষা
             await asyncio.sleep(1800)
 
-            # Delete Logic
+            # অটো ডিলিট
             await sent_file.delete()
             await notice.delete()
-            await message.reply_text("🕒 **Somoy shesh!** Nirapottar khatire file-ti muche fela hoyeche.")
+            await message.reply_text("🕒 **সময় শেষ!** নিরাপত্তার জন্য ফাইলটি মুছে ফেলা হয়েছে।")
 
         except Exception:
-            await proc.edit("❌ **Error:** File-ti paoya jayni ba server theke muche geche.")
+            await proc.edit("❌ **Error:** ফাইলটি পাওয়া যায়নি। আবার আপলোড করে নতুন লিঙ্ক নিন।")
     else:
-        # Main Menu
-        await message.reply_text(
-            "👋 **Welcome to AHRTSBD File Store**\n\nFile upload korte /upload likhun.",
-            reply_markup=InlineKeyboardMarkup([
-                [InlineKeyboardButton("📢 Channel", url="https://t.me/+ec0RYUumPzVmYTc1")]
-            ])
-        )
+        await message.reply_text("👋 **Welcome to AHRTSBD File Store**\n\nফাইল আপলোড করতে /upload লিখুন।")
 
-# --- UPLOAD COMMAND ---
+# --- UPLOAD & MEDIA HANDLE ---
 @app.on_message(filters.command("upload") & filters.private)
 async def upload(client, message):
     user_data[message.from_user.id] = []
-    await message.reply_text(
-        "📤 **Upload Mode Active!**\n\nEkhon file pathan. Shob deoya shesh hole '✅ Finish' likhun ba button-e chap den.",
-        reply_markup=ReplyKeyboardMarkup([["✅ Finish"]], resize_keyboard=True)
-    )
+    await message.reply_text("📤 ফাইল পাঠান, সবগুলো পাঠানো শেষ হলে **✅ Finish** বাটনে ক্লিক করুন।", 
+                             reply_markup=ReplyKeyboardMarkup([["✅ Finish"]], resize_keyboard=True))
 
-# --- HANDLE MEDIA & FINISH ---
 @app.on_message(filters.private & ~filters.command(["start", "upload"]))
 async def handle_media(client, message):
     user_id = message.from_user.id
-    
     if message.text == "✅ Finish":
         if user_id in user_data and user_data[user_id]:
-            # Generate Link (Multiple file thakle prothomtar ID niye link hobe)
             file_id = user_data[user_id][0]
             link = f"https://t.me/{(await client.get_me()).username}?start={file_id}"
-            
-            await message.reply_text(
-                f"✅ **Upload Complete!**\n\n🔗 **Link:** `{link}`",
-                reply_markup=ReplyKeyboardRemove()
-            )
+            await message.reply_text(f"✅ **আপনার লিঙ্ক তৈরি:**\n\n`{link}`", reply_markup=ReplyKeyboardRemove())
             user_data.pop(user_id)
-        else:
-            await message.reply_text("❌ Kono file den ni!")
-            
     elif user_id in user_data:
-        # File type check kore save kora
-        if message.document:
-            user_data[user_id].append(message.document.file_id)
-        elif message.video:
-            user_data[user_id].append(message.video.file_id)
-        elif message.photo:
-            user_data[user_id].append(message.photo.file_id)
-        
-        await message.reply_text("📂 **Media saved!** Aro pathan ba ✅ Finish koren.")
+        if message.document: user_data[user_id].append(message.document.file_id)
+        elif message.video: user_data[user_id].append(message.video.file_id)
+        elif message.photo: user_data[user_id].append(message.photo.file_id)
+        await message.reply_text("📂 **সেভ হয়েছে!** আরও ফাইল থাকলে পাঠান অথবা শেষ করুন।")
 
 app.run()
-  
