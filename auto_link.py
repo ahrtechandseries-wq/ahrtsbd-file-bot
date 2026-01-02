@@ -1,24 +1,3 @@
-import asyncio
-import uuid
-from typing import ClassVar
-
-from pyrogram import filters
-from pyrogram.client import Client
-from pyrogram.types import InlineKeyboardButton, InlineKeyboardMarkup, Message
-
-from bot.config import config
-from bot.database import MongoDB
-from bot.options import options
-from bot.utilities.helpers import DataEncoder, RateLimiter
-from bot.utilities.pyrofilters import ConvoMessage, PyroFilters
-from bot.utilities.pyrotools import FileResolverModel
-
-
-class AutoLinkGen:
-    database = MongoDB()
-    background_tasks: ClassVar[set[asyncio.Task]] = set()
-    files_cache: ClassVar[dict[int, dict[int, list[FileResolverModel]]]] = {}
-
     @classmethod
     async def process_files(
         cls,
@@ -36,89 +15,31 @@ class AutoLinkGen:
         add_file = await cls.database.add_file(file_link=file_link, file_origin=file_origin, file_data=file_datas)
 
         if add_file:
-            link = f"https://t.me/{client.me.username}?start={file_link}"  # type: ignore[reportOptionalMemberAccess]
+            link = f"https://t.me/{client.me.username}?start={file_link}"
             reply_markup = InlineKeyboardMarkup(
                 [[InlineKeyboardButton("Share URL", url=f"https://t.me/share/url?url={link}")]],
             )
 
-            return await message.reply(
-                text=f"Here is your link:\n>{link}",
+            # লিঙ্ক পাঠানোর মেসেজটি সেভ করে রাখা
+            sent_msg = await message.reply(
+                text=f"✅ **লিঙ্ক তৈরি হয়েছে!**\n\n🔗 **লিঙ্ক:** `{link}`\n\n⚠️ নিরাপত্তার জন্য এই মেসেজটি ৩০ মিনিট পর ডিলিট হয়ে যাবে।",
                 quote=True,
                 reply_markup=reply_markup,
                 disable_web_page_preview=True,
             )
 
+            # --- অটো-ডিলিট লজিক শুরু ---
+            async def auto_delete():
+                await asyncio.sleep(1800)  # ১৮০০ সেকেন্ড = ৩০ মিনিট
+                try:
+                    await sent_msg.delete()  # বোটের পাঠানো লিঙ্ক মেসেজটি ডিলিট হবে
+                    await message.delete()   # ইউজারের পাঠানো অরিজিনাল ফাইলটি ডিলিট হবে
+                except:
+                    pass # মেসেজ আগে ডিলিট হয়ে গেলে এরর এড়াতে
+
+            asyncio.create_task(auto_delete())
+            return sent_msg
+            # --- অটো-ডিলিট লজিক শেষ ---
+
         return await message.reply("Couldn't add files to database")
-
-    @classmethod
-    async def media_group_handler(cls, client: Client, message: Message) -> None:
-        "backup"
-        await asyncio.sleep(3)
-        file_datas = [i.model_dump() for i in cls.files_cache[message.from_user.id][message.media_group_id]]
-
-        if options.settings.BACKUP_FILES:
-            forwarded_messages = await client.forward_messages(
-                chat_id=config.BACKUP_CHANNEL,
-                from_chat_id=message.chat.id,
-                message_ids=[i["message_id"] for i in file_datas],
-                hide_sender_name=True,
-            )
-            file_datas = [
-                FileResolverModel(
-                    caption=msg.caption.markdown if msg.caption else None,
-                    file_id=(msg.document or msg.video or msg.photo or msg.audio or msg.sticker).file_id,
-                    message_id=msg.id,
-                    media_group_id=msg.media_group_id,
-                )
-                for msg in (forwarded_messages if isinstance(forwarded_messages, list) else [forwarded_messages])
-            ]
-        else:
-            file_datas = [FileResolverModel(**d) for d in file_datas]
-
-        del cls.files_cache[message.from_user.id][message.media_group_id]
-        await cls.process_files(client=client, message=message, file_data=file_datas)
-
-    @classmethod
-    async def handle_files(cls, client: Client, message: Message) -> None:
-        file_type = message.document or message.video or message.photo or message.audio or message.sticker
-        message_id = message.id
-        user_id = message.from_user.id
-
-        resolve_file = FileResolverModel(
-            caption=message.caption.markdown if message.caption else None,
-            file_id=file_type.file_id,
-            message_id=message_id,
-        )
-
-        if message.media_group_id:
-            if not cls.files_cache.get(user_id, {}).get(message.media_group_id):
-                cls.files_cache[user_id] = {message.media_group_id: []}
-                task = asyncio.create_task(cls.media_group_handler(client=client, message=message))
-                cls.background_tasks.add(task)
-                task.add_done_callback(cls.background_tasks.discard)
-
-            resolve_file.media_group_id = message.media_group_id
-            cls.files_cache[user_id][message.media_group_id].append(resolve_file)
-        else:
-            if options.settings.BACKUP_FILES:
-                backup_file = await message.copy(chat_id=config.BACKUP_CHANNEL)
-                resolve_file.message_id = backup_file[0].id if isinstance(backup_file, list) else backup_file.id
-
-            await cls.process_files(client=client, message=message, file_data=[resolve_file])
-
-
-@Client.on_message(
-    filters.private
-    & PyroFilters.admin(allow_global=True)
-    & PyroFilters.subscription()
-    & PyroFilters.user_not_in_conversation()
-    & (filters.audio | filters.photo | filters.video | filters.document | filters.sticker),
-)
-@RateLimiter.hybrid_limiter(func_count=1)
-async def auto_link_gen(client: Client, message: ConvoMessage) -> Message | None:
-    """Handle files that is send or forwarded directly to the bot and generate a link for it."""
-
-    if getattr(client.me, "id", None) == message.from_user.id or not config.AUTO_GENERATE_LINK:
-        return None
-
-    await AutoLinkGen.handle_files(client=client, message=message)
+        
